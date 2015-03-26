@@ -1,0 +1,339 @@
+/*************************************************************************
+	> File Name: AdministrateFile.c
+	> Author: LCG
+	> Mail: lichungang521521.com
+	> Created Time: 2015年03月15日 星期日 20时12分22秒
+ ************************************************************************/
+/*
+ *The file control files up and Download
+ * */
+#include<apue.h>
+
+int ConductCommandRemove(int ClientFd,char para[30],char path[40])
+{
+	int ret;
+	char buf[50];
+
+	memset(buf,0,sizeof(buf));
+
+	sprintf(buf,"%s/%s",path,para);
+	ret = remove(buf);
+	if(ret < 0)
+	{
+		perror("delect file error");
+		return -1;
+	}
+
+	memset(buf,0,sizeof(buf));
+	sprintf(buf,"remove success");
+	ret = send(ClientFd,buf,sizeof(buf),0);
+	if(ret < 0)
+	{
+		perror("in ConductCommandRemove function send error");
+		return -2;
+	}
+
+	printf("delect success\n");
+	return ret;
+}
+
+int  ConductCommandUpload(int ClientFd,char para[30],char path[40])
+{
+//	char *ptr[20];
+	char buf[512];
+	int fd;
+	int ret;
+
+	memset(buf,0,sizeof(buf));
+	sprintf(buf,"%s/%s",path,para);
+	fd = open(buf,O_CREAT | O_EXCL | O_RDWR,0666);
+	if(fd < 0)
+	{
+		perror("create error");
+		memset(buf,0,sizeof(buf));
+		sprintf(buf,"No have the file");
+		send(ClientFd,buf,sizeof(buf),0);
+		
+		memset(buf,0,sizeof(buf));
+		return -1;
+	}
+	else
+	{
+		ret = recv(ClientFd,buf,sizeof(buf),0);
+		if(ret < 0)
+		{
+			perror("recv file error");
+		}
+		while(ret > 0)
+		{
+			ret = write(fd,buf,sizeof(buf));
+			if(ret < 0)
+			{
+				perror("写入文件失败");
+				return -4;
+			}
+
+			memset(buf,0,sizeof(buf));
+			ret = recv(ClientFd,buf,sizeof(buf),0);
+			if(ret < 0)
+			{
+				perror("recv file finish");
+			}
+			if(!strcmp(buf,"send out"))
+				break;
+		}
+
+		memset(buf,0,sizeof(buf));
+		sprintf(buf,"upload finish");
+		send(ClientFd,buf,sizeof(buf),0);
+
+		printf("%s\n",buf);
+	}
+
+	close(fd);
+	return 1;
+}
+
+int ConductCommandDownload(int ClientFd,char para[30],char path[40])
+{
+//	char *ptr[20];
+//	char *str;
+	char buf[512];
+	int dirCount;
+	int i = 0;
+	int j = 0;
+	int k = 0;
+	int flag = 0;
+	int ret;
+	int fd;
+
+	printf("para = [%s]\n",para);
+
+	memset(buf,0,sizeof(buf));
+//	ConductCommandLs(ClientFd,buf);
+
+		
+	sprintf(buf,"%s/%s",path,para);
+	fd = open(buf,O_RDWR,0666);
+	if(fd < 0)
+	{
+		memset(buf,0,sizeof(buf));
+		sprintf(buf,"No have the file");
+		send(ClientFd,buf,sizeof(buf),0);
+
+		memset(buf,0,sizeof(buf));
+		perror("打开文件失败");
+		return -1;
+	}
+	else
+	{	
+		printf("open success");
+		memset(buf,0,sizeof(buf));
+		
+		ret = read(fd,buf,sizeof(buf));
+		if(ret < 0)
+		{ 
+			perror("读取文件失败");
+			return -2;
+		}
+		while(ret > 0)
+		{
+			printf("send data is [%s]\n",buf);
+			ret = send(ClientFd,buf,strlen(buf),0);
+			if(ret < 0)
+			{
+				perror("发送数据失败");
+				return -3;
+			}
+			memset(buf,0,sizeof(buf));
+
+			ret = read(fd,buf,sizeof(buf));
+			if(ret < 0)
+			{
+				perror("读取文件失败");
+				return -4;
+			}
+
+			if(ret <= 0)
+			{
+				sleep(1);
+				sprintf(buf,"out");
+				send(ClientFd,buf,sizeof(buf),0);
+			}
+		}
+	
+		close(fd);
+	}
+	return ret;
+}
+
+int ConductCommandLsSend(int ClientFd,char buf[50])
+{
+	int ret;
+
+	//将 USER_DIC 目录下的文件发给客户端
+	ret = send(ClientFd,buf,strlen(buf),0);
+	if(ret < 0)
+	{
+		perror("读取目录失败");
+		return -2;
+	}
+
+	printf("发送的是 %s \n",buf);
+
+	return ret;
+}
+
+int  ConductCommandLs(int ClientFd,char buf[50],char path[40])
+{
+	//使用 readdir 函数
+//	char buf[128];
+	char str[20];
+	DIR *dir;
+	struct dirent *ptr;
+	int i = 0;
+	int ret;
+
+//	memset(buf,0,sizeof(buf));
+//	strcpy(buf,path);
+	dir = opendir(path);
+	
+	while((ptr = readdir(dir)) != NULL)
+	{
+		sprintf(str,"%s",ptr->d_name);
+		strcat(buf,str);
+		strcat(buf," ");
+		i++;
+	}
+		printf("dictroy is %s \n",buf);
+	closedir(dir);
+	return 1;
+}
+
+int AdminiFunc(int ClientFd,char UserName[40]) 
+{
+	//负责接受客户端发来的命令 和 文件名
+	char path[80];
+	char buf[50];
+	char *ptr;
+	char command[20];
+	char para[30];
+	int ret;
+	int i = 0;
+	int j = 0;
+	//ret = RecvClientCommand(ClientFd);
+	
+	memset(path,0,sizeof(path));
+	sprintf(path,"./USER_DIC/%s",UserName);
+	
+	struct stat st = {0};
+	if(stat(path,&st) == -1)
+	{
+		mkdir(path,0700);
+	}
+
+	memset(para,0,sizeof(para));
+	memset(command,0,sizeof(command));
+	memset(buf,0,sizeof(buf));
+	
+	while(1)						//循环的处理刚上线的用户发来的命令
+	{
+		i = 0;
+		j = 0;
+		memset(para,0,sizeof(para));
+		memset(command,0,sizeof(command));
+		memset(buf,0,sizeof(buf));
+		ret = recv(ClientFd,buf,sizeof(buf),0);
+		if(ret < 0)
+		{
+			perror("接受客户端命令失败");
+			return -1;
+		}
+
+		printf("受到客户端的命令和参数是 %s\n",buf);
+		ptr = (char *)buf;
+		printf("ptr = [%s]\n",ptr);
+		while(ptr[i] != ' ')
+		{
+			printf("11111ptr = [%s]\n",ptr);
+
+			command[i] = ptr[i]; 
+			i++;
+			if(!strcmp(command,"ls"))
+				break;
+		}
+
+		if(strcmp(command,"ls"))
+		{
+		printf("222 ptr = [%s]\n",ptr);
+			i = i + 1;
+
+			while(ptr[i] != '\0')
+			{
+			printf("333333 ptr = [%s]\n",ptr);
+				para[j] = ptr[i];
+				i++;
+				j++;
+			}
+		}
+	
+		printf("ptr = [%s]\n",ptr);
+		printf("command = [%s]\n",command);
+		printf("hrer?\n");
+		if(!strcmp(command,"ls"))
+		{
+			printf("heeee\n");
+			memset(para,0,sizeof(para));
+			memset(buf,0,sizeof(buf));
+			
+			printf("path = [%s]\n",path);
+			ConductCommandLs(ClientFd,buf,path);
+			printf("返回的是 %s \n",buf);
+		
+			ConductCommandLsSend(ClientFd,buf);
+		}
+		else if(!strcmp(command,"download"))
+		{
+			ret = ConductCommandDownload(ClientFd,para,path);	
+			if(-1 == ret)
+			{
+				ptr = NULL;
+				memset(para,0,sizeof(para));
+				memset(command,0,sizeof(command));
+				memset(buf,0,sizeof(buf));
+				printf("exit the xuhuan\n");
+				continue;
+			}
+		}
+
+		else if(!strcmp(command,"upload"))
+		{
+			ret = ConductCommandUpload(ClientFd,para,path);
+			if(ret < 0)
+			{
+				perror("client upload error");
+			}
+		}	
+		else if(!strcmp(command,"remove"))
+		{
+			ret = ConductCommandRemove(ClientFd,para,path);
+			if(ret < 0)
+			{
+				perror("Remove file error");
+			}
+		}
+		else if(!strcmp(command,"exit"))
+		{
+			printf("the client [%d] offline\n",ClientFd);
+		}
+
+		i = 0;					//由于是循环调用，所以在每次循环完毕必须得对所有变量进行出使化为 0 或 NULL；
+		j = 0;
+		ptr = NULL;
+		memset(para,0,sizeof(para));
+		memset(command,0,sizeof(command));
+		memset(buf,0,sizeof(buf));
+	}
+		//退出此线程
+}
+
